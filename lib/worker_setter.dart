@@ -32,7 +32,14 @@ void setModel(BuildContext context, Function setState) {
       for (var i = 0; i < list.models!.length; i++) {
         models.add(list.models![i].model!.split(":")[0]);
         modelsReal.add(list.models![i].model!);
-        modal.add((list.models![i].details!.families ?? []).contains("clip"));
+        final _families = list.models![i].details!.families ?? [];
+        modal.add(_families.contains("clip") ||
+            _families.contains("qwen3vl") ||
+            _families.contains("qwen2vl") ||
+            _families.contains("gemma3") ||
+            _families.contains("mllama") ||
+            _families.contains("llama4") ||
+            _families.contains("minicpmv"));
       }
       addIndex = models.length;
       // ignore: use_build_context_synchronously
