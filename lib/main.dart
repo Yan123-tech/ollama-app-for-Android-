@@ -26,6 +26,7 @@ import 'package:dartx/dartx.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 // ignore: depend_on_referenced_packages
 import 'package:markdown/markdown.dart' as md;
+import 'markdown_extensions.dart';
 import 'package:bitsdojo_window/bitsdojo_window.dart';
 import 'package:flutter_displaymode/flutter_displaymode.dart';
 
@@ -874,6 +875,15 @@ class _MainAppState extends State<MainApp> {
                       messages: messages,
                       textMessageBuilder: (p0,
                           {required messageWidth, required showName}) {
+                        final isUser = p0.author == user;
+                        final isLight = Theme.of(context).brightness ==
+                            Brightness.light;
+                        final textColor = isUser
+                            ? Colors.white
+                            : (isLight ? Colors.black : Colors.white);
+                        // Dark code background: assistant messages in light theme
+                        final darkCodeBg = !isUser && isLight;
+
                         var white = const TextStyle(color: Colors.white);
                         return Padding(
                             padding: const EdgeInsets.only(
@@ -904,13 +914,26 @@ class _MainAppState extends State<MainApp> {
                                   }
                                 },
                                 extensionSet: md.ExtensionSet(
-                                  md.ExtensionSet.gitHubFlavored.blockSyntaxes,
+                                  [
+                                    ...md.ExtensionSet.gitHubFlavored
+                                        .blockSyntaxes,
+                                    BlockMathSyntax(),
+                                  ],
                                   <md.InlineSyntax>[
                                     md.EmojiSyntax(),
                                     ...md.ExtensionSet.gitHubFlavored
-                                        .inlineSyntaxes
+                                        .inlineSyntaxes,
+                                    InlineMathSyntax(),
                                   ],
                                 ),
+                                builders: {
+                                  'code': CodeHighlightBuilder(
+                                      darkBackground: darkCodeBg),
+                                  'inlinemath':
+                                      InlineMathBuilder(textColor),
+                                  'blockmath':
+                                      BlockMathBuilder(textColor),
+                                },
                                 imageBuilder: (uri, title, alt) {
                                   if (uri.isAbsolute) {
                                     return Image.network(uri.toString(),
@@ -972,7 +995,7 @@ class _MainAppState extends State<MainApp> {
                                                     "assets/logo512error.png"))));
                                   }
                                 },
-                                styleSheet: (p0.author == user)
+                                styleSheet: isUser
                                     ? MarkdownStyleSheet(
                                         p: const TextStyle(
                                             color: Colors.white,
@@ -986,10 +1009,8 @@ class _MainAppState extends State<MainApp> {
                                         code: const TextStyle(
                                             color: Colors.black,
                                             backgroundColor: Colors.white),
-                                        codeblockDecoration: BoxDecoration(
-                                            color: Colors.white,
-                                            borderRadius:
-                                                BorderRadius.circular(8)),
+                                        codeblockDecoration:
+                                            const BoxDecoration(),
                                         h1: white,
                                         h2: white,
                                         h3: white,
@@ -1005,8 +1026,7 @@ class _MainAppState extends State<MainApp> {
                                         tableBorder: TableBorder.all(
                                             color: Colors.white),
                                         tableBody: white)
-                                    : (Theme.of(context).brightness ==
-                                            Brightness.light)
+                                    : isLight
                                         ? MarkdownStyleSheet(
                                             p: const TextStyle(
                                                 color: Colors.black,
@@ -1020,10 +1040,8 @@ class _MainAppState extends State<MainApp> {
                                             code: const TextStyle(
                                                 color: Colors.white,
                                                 backgroundColor: Colors.black),
-                                            codeblockDecoration: BoxDecoration(
-                                                color: Colors.black,
-                                                borderRadius:
-                                                    BorderRadius.circular(8)),
+                                            codeblockDecoration:
+                                                const BoxDecoration(),
                                             horizontalRuleDecoration: BoxDecoration(
                                                 border: Border(
                                                     top: BorderSide(
@@ -1044,7 +1062,7 @@ class _MainAppState extends State<MainApp> {
                                                 color: Colors.black,
                                                 backgroundColor: Colors.white),
                                             codeblockDecoration:
-                                                BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8)),
+                                                const BoxDecoration(),
                                             horizontalRuleDecoration: BoxDecoration(border: Border(top: BorderSide(color: Colors.grey[200]!, width: 1))))));
                       },
                       imageMessageBuilder: (p0, {required messageWidth}) {
