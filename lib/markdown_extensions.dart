@@ -1,12 +1,31 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_highlight/flutter_highlight.dart';
 import 'package:flutter_highlight/themes/atom-one-dark.dart';
 import 'package:flutter_highlight/themes/github.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:markdown/markdown.dart' as md;
+import 'package:webview_flutter/webview_flutter.dart';
 
-// ─── Inline Math: $...$ and \(...\) ──────────────────────────────
-// Renders as inline code (monospace) — reliable on all Flutter versions.
+// ─── Cached Extension Set ────────────────────────────────────────────
+// Built once and reused across all message rebuilds.
+
+md.ExtensionSet? _cachedMathExtensionSet;
+
+md.ExtensionSet get mathExtensionSet {
+  return _cachedMathExtensionSet ??= md.ExtensionSet(
+    [...md.ExtensionSet.gitHubFlavored.blockSyntaxes, BlockMathSyntax()],
+    <md.InlineSyntax>[
+      md.EmojiSyntax(),
+      ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes,
+      InlineMathSyntax(),
+    ],
+  );
+}
+
+// ─── Inline Math: $...$ and \(...\) ──────────────────────────────────
+// Renders as inline code (monospace) — WebView can't be embedded inline.
 
 class InlineMathSyntax extends md.InlineSyntax {
   static const _pattern =
@@ -17,14 +36,12 @@ class InlineMathSyntax extends md.InlineSyntax {
   @override
   bool onMatch(md.InlineParser parser, Match match) {
     final content = match[1] ?? match[2] ?? '';
-    // Emit as <code> — rendered inline with monospace styling via stylesheet,
-    // no custom widget needed (avoids WidgetSpan layout issues).
     parser.addNode(md.Element('code', [md.Text(content)]));
     return true;
   }
 }
 
-// ─── Block Math: $$...$$ and \[...\] ─────────────────────────────
+// ─── Block Math: $$...$$ and \[...\] ─────────────────────────────────
 
 class BlockMathSyntax extends md.BlockSyntax {
   static final _dollarSingle = RegExp(r'^\$\$(.+)\$\$\s*$');
@@ -44,7 +61,6 @@ class BlockMathSyntax extends md.BlockSyntax {
     final firstLine = parser.current.content;
     final isDollar = firstLine.startsWith(r'$$');
 
-    // Single-line variants: $$...$$ or \[...\]
     final single = isDollar
         ? _dollarSingle.firstMatch(firstLine)
         : _bracketSingle.firstMatch(firstLine);
@@ -53,7 +69,6 @@ class BlockMathSyntax extends md.BlockSyntax {
       return md.Element('blockmath', [md.Text(single[1]!.trim())]);
     }
 
-    // Multi-line: collect until closing delimiter
     final remainder = firstLine.substring(2).trim();
     parser.advance();
 
@@ -76,7 +91,7 @@ class BlockMathSyntax extends md.BlockSyntax {
   }
 }
 
-// ─── Block Math Builder ───────────────────────────────────────────
+// ─── Block Math Builder ───────────────────────────────────────────────
 
 class BlockMathBuilder extends MarkdownElementBuilder {
   final Color textColor;
@@ -89,75 +104,107 @@ class BlockMathBuilder extends MarkdownElementBuilder {
     TextStyle? preferredStyle,
     TextStyle? parentStyle,
   ) {
-    try {
-      final tex = element.textContent;
-      final bg = textColor.withOpacity(0.07);
-      final border = textColor.withOpacity(0.22);
-
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: Container(
-          decoration: BoxDecoration(
-            color: bg,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: border),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Label bar
-              Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 12, vertical: 5),
-                decoration: BoxDecoration(
-                  color: border,
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(7),
-                    topRight: Radius.circular(7),
-                  ),
-                ),
-                child: Text(
-                  'math',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontFamily: 'monospace',
-                    color: textColor.withOpacity(0.65),
-                    letterSpacing: 0.5,
-                  ),
-                ),
-              ),
-              // LaTeX source
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.all(12),
-                child: Text(
-                  tex,
-                  style: TextStyle(
-                    color: textColor,
-                    fontFamily: 'monospace',
-                    fontSize: 15,
-                    height: 1.6,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    } catch (_) {
-      return Text(
-        element.textContent,
-        style: TextStyle(color: textColor, fontFamily: 'monospace'),
-      );
-    }
+    final latex = element.textContent;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: MathWebView(latex: latex, textColor: textColor),
+    );
   }
 }
 
-// ─── Syntax Highlighting Builder ──────────────────────────────────
+// ─── KaTeX WebView Widget ─────────────────────────────────────────────
+
+class MathWebView extends StatefulWidget {
+  final String latex;
+  final Color textColor;
+
+  const MathWebView({
+    super.key,
+    required this.latex,
+    required this.textColor,
+  });
+
+  @override
+  State<MathWebView> createState() => _MathWebViewState();
+}
+
+class _MathWebViewState extends State<MathWebView>
+    with AutomaticKeepAliveClientMixin {
+  late final WebViewController _controller;
+  double _height = 72.0;
+
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  void initState() {
+    super.initState();
+    final isDark = widget.textColor.computeLuminance() > 0.5;
+    final fgColor = isDark ? '#e8e8e8' : '#212121';
+    final latexJson = jsonEncode(widget.latex);
+
+    final html = '''<!DOCTYPE html>
+<html><head>
+  <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    html,body{background:transparent;overflow:hidden}
+    #math{color:$fgColor;padding:10px 8px;overflow-x:auto;font-size:15px;text-align:center}
+    .katex-display{margin:0;overflow-x:auto;overflow-y:hidden}
+    .katex-error{color:#e74c3c;font-size:12px;font-family:monospace}
+  </style>
+</head><body>
+  <div id="math"></div>
+  <script>
+    var reported=false;
+    function reportSize(){
+      if(!reported){reported=true;SizeReporter.postMessage(String(document.body.scrollHeight||60));}
+    }
+    document.addEventListener("DOMContentLoaded",function(){
+      var el=document.getElementById("math");
+      var latex=$latexJson;
+      if(typeof katex!=="undefined"){
+        try{katex.render(latex,el,{displayMode:true,throwOnError:false});}
+        catch(e){el.innerText=latex;}
+      } else {
+        el.innerText=latex;
+      }
+      document.fonts.ready.then(reportSize);
+      setTimeout(reportSize,4000);
+    });
+  </script>
+</body></html>''';
+
+    _controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setBackgroundColor(Colors.transparent)
+      ..addJavaScriptChannel(
+        'SizeReporter',
+        onMessageReceived: (msg) {
+          final h = double.tryParse(msg.message);
+          if (h != null && mounted) {
+            setState(() => _height = h.clamp(40.0, 500.0));
+          }
+        },
+      )
+      ..loadHtmlString(html);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return SizedBox(
+      height: _height,
+      child: WebViewWidget(controller: _controller),
+    );
+  }
+}
+
+// ─── Syntax Highlighting Builder ──────────────────────────────────────
 
 class CodeHighlightBuilder extends MarkdownElementBuilder {
-  /// true  → dark code background (assistant in light theme)
-  /// false → light code background (user messages or dark theme)
   final bool darkBackground;
 
   CodeHighlightBuilder({required this.darkBackground});
@@ -170,7 +217,6 @@ class CodeHighlightBuilder extends MarkdownElementBuilder {
     TextStyle? parentStyle,
   ) {
     final classAttr = element.attributes['class'] ?? '';
-    // Inline code has no class attribute – return null to use stylesheet styling
     if (classAttr.isEmpty) return null;
 
     final language = _resolveLanguage(
@@ -192,7 +238,6 @@ class CodeHighlightBuilder extends MarkdownElementBuilder {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Language label bar
               if (language.isNotEmpty)
                 Container(
                   padding: const EdgeInsets.symmetric(
@@ -227,12 +272,10 @@ class CodeHighlightBuilder extends MarkdownElementBuilder {
         ),
       );
     } catch (_) {
-      // HighlightView threw (unsupported language or other error) — show plain text
       final bgColor = darkBackground
           ? const Color(0xFF282C34)
           : const Color(0xFFF6F8FA);
-      final textColor =
-          darkBackground ? Colors.white : Colors.black87;
+      final textColor = darkBackground ? Colors.white : Colors.black87;
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 4),
         child: Container(
@@ -276,7 +319,6 @@ class CodeHighlightBuilder extends MarkdownElementBuilder {
       'h': 'cpp',
       'hpp': 'cpp',
       'dart': 'dart',
-      // Common "non-language" labels — use plaintext fallback
       'text': 'plaintext',
       'output': 'plaintext',
       'console': 'bash',

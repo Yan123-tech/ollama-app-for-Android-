@@ -38,6 +38,7 @@ dependencies:
   version: ^3.0.2
   flutter_displaymode: ^0.6.0
   flutter_highlight: ^0.7.0
+  webview_flutter: ^4.8.0
 
 dev_dependencies:
   flutter_test:

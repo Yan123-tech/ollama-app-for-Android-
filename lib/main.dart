@@ -24,8 +24,6 @@ import 'package:visibility_detector/visibility_detector.dart';
 import 'package:ollama_dart/ollama_dart.dart' as llama;
 import 'package:dartx/dartx.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
-// ignore: depend_on_referenced_packages
-import 'package:markdown/markdown.dart' as md;
 import 'markdown_extensions.dart';
 import 'package:bitsdojo_window/bitsdojo_window.dart';
 import 'package:flutter_displaymode/flutter_displaymode.dart';
@@ -913,19 +911,7 @@ class _MainAppState extends State<MainApp> {
                                             showCloseIcon: true));
                                   }
                                 },
-                                extensionSet: md.ExtensionSet(
-                                  [
-                                    ...md.ExtensionSet.gitHubFlavored
-                                        .blockSyntaxes,
-                                    BlockMathSyntax(),
-                                  ],
-                                  <md.InlineSyntax>[
-                                    md.EmojiSyntax(),
-                                    ...md.ExtensionSet.gitHubFlavored
-                                        .inlineSyntaxes,
-                                    InlineMathSyntax(),
-                                  ],
-                                ),
+                                extensionSet: mathExtensionSet,
                                 builders: {
                                   'code': CodeHighlightBuilder(
                                       darkBackground: darkCodeBg),
@@ -1205,6 +1191,8 @@ class _MainAppState extends State<MainApp> {
                                 .timeout(const Duration(seconds: 15));
 
                             String text = "";
+                            var lastUiUpdate =
+                                DateTime.fromMillisecondsSinceEpoch(0);
                             await for (final res in stream) {
                               text += (res.message?.content ?? "");
                               for (var i = 0; i < messages.length; i++) {
@@ -1223,9 +1211,16 @@ class _MainAppState extends State<MainApp> {
                                       author: assistant,
                                       id: newId,
                                       text: text));
-                              setState(() {});
-                              HapticFeedback.lightImpact();
+                              final now = DateTime.now();
+                              if (now
+                                      .difference(lastUiUpdate)
+                                      .inMilliseconds >=
+                                  80) {
+                                setState(() {});
+                                lastUiUpdate = now;
+                              }
                             }
+                            setState(() {}); // final render
                           } else {
                             llama.GenerateChatCompletionResponse request;
                             request = await client
