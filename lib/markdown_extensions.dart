@@ -6,9 +6,9 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:markdown/markdown.dart' as md;
 
 // ─── Inline Math: $...$ and \(...\) ──────────────────────────────
+// Renders as inline code (monospace) — reliable on all Flutter versions.
 
 class InlineMathSyntax extends md.InlineSyntax {
-  // Matches $...$ (not $$) OR \(...\)
   static const _pattern =
       r'\$(?!\$)((?:[^\$\n]|\\\$)+?)\$|\\\((.+?)\\\)';
 
@@ -17,7 +17,9 @@ class InlineMathSyntax extends md.InlineSyntax {
   @override
   bool onMatch(md.InlineParser parser, Match match) {
     final content = match[1] ?? match[2] ?? '';
-    parser.addNode(md.Element.text('inlinemath', content));
+    // Emit as <code> — rendered inline with monospace styling via stylesheet,
+    // no custom widget needed (avoids WidgetSpan layout issues).
+    parser.addNode(md.Element('code', [md.Text(content)]));
     return true;
   }
 }
@@ -74,106 +76,6 @@ class BlockMathSyntax extends md.BlockSyntax {
   }
 }
 
-// ─── Math Display Widget (no external package) ────────────────────
-
-/// Displays LaTeX source in a visually distinct styled block.
-/// Shows the raw LaTeX with monospace font and a "math" label.
-Widget buildMathWidget(String tex, Color textColor, bool isBlock) {
-  final bg = textColor.withOpacity(0.07);
-  final border = textColor.withOpacity(0.22);
-
-  if (isBlock) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Container(
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: border),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Label bar
-            Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-              decoration: BoxDecoration(
-                color: border,
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(7),
-                  topRight: Radius.circular(7),
-                ),
-              ),
-              child: Text(
-                'math',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontFamily: 'monospace',
-                  color: textColor.withOpacity(0.65),
-                  letterSpacing: 0.5,
-                ),
-              ),
-            ),
-            // LaTeX source
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.all(12),
-              child: Text(
-                tex,
-                style: TextStyle(
-                  color: textColor,
-                  fontFamily: 'monospace',
-                  fontSize: 15,
-                  height: 1.6,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  } else {
-    // Inline math: small styled pill
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 2),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(4),
-          border: Border.all(color: border, width: 0.8),
-        ),
-        child: Text(
-          tex,
-          style: TextStyle(
-            color: textColor,
-            fontFamily: 'monospace',
-            fontSize: 14,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ─── Inline Math Builder ──────────────────────────────────────────
-
-class InlineMathBuilder extends MarkdownElementBuilder {
-  final Color textColor;
-  InlineMathBuilder(this.textColor);
-
-  @override
-  Widget? visitElementAfterWithContext(
-    BuildContext context,
-    md.Element element,
-    TextStyle? preferredStyle,
-    TextStyle? parentStyle,
-  ) {
-    return buildMathWidget(element.textContent, textColor, false);
-  }
-}
-
 // ─── Block Math Builder ───────────────────────────────────────────
 
 class BlockMathBuilder extends MarkdownElementBuilder {
@@ -187,14 +89,74 @@ class BlockMathBuilder extends MarkdownElementBuilder {
     TextStyle? preferredStyle,
     TextStyle? parentStyle,
   ) {
-    return buildMathWidget(element.textContent, textColor, true);
+    try {
+      final tex = element.textContent;
+      final bg = textColor.withOpacity(0.07);
+      final border = textColor.withOpacity(0.22);
+
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Container(
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: border),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Label bar
+              Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 5),
+                decoration: BoxDecoration(
+                  color: border,
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(7),
+                    topRight: Radius.circular(7),
+                  ),
+                ),
+                child: Text(
+                  'math',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontFamily: 'monospace',
+                    color: textColor.withOpacity(0.65),
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+              // LaTeX source
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.all(12),
+                child: Text(
+                  tex,
+                  style: TextStyle(
+                    color: textColor,
+                    fontFamily: 'monospace',
+                    fontSize: 15,
+                    height: 1.6,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    } catch (_) {
+      return Text(
+        element.textContent,
+        style: TextStyle(color: textColor, fontFamily: 'monospace'),
+      );
+    }
   }
 }
 
 // ─── Syntax Highlighting Builder ──────────────────────────────────
 
 class CodeHighlightBuilder extends MarkdownElementBuilder {
-  /// true  → dark code background (assistant messages in light theme)
+  /// true  → dark code background (assistant in light theme)
   /// false → light code background (user messages or dark theme)
   final bool darkBackground;
 
@@ -217,52 +179,87 @@ class CodeHighlightBuilder extends MarkdownElementBuilder {
           : classAttr,
     );
 
+    final code = element.textContent.trimRight();
+    if (code.isEmpty) return null;
+
     final theme = darkBackground ? atomOneDarkTheme : githubTheme;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Language label bar
-            if (language.isNotEmpty && language != 'plaintext')
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-                color: darkBackground
-                    ? const Color(0xFF21252B)
-                    : const Color(0xFFE1E4E8),
-                child: Text(
-                  language,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontFamily: 'monospace',
-                    color: darkBackground ? Colors.grey[400] : Colors.grey[700],
+    try {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Language label bar
+              if (language.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 5),
+                  color: darkBackground
+                      ? const Color(0xFF21252B)
+                      : const Color(0xFFE1E4E8),
+                  child: Text(
+                    language,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontFamily: 'monospace',
+                      color: darkBackground
+                          ? Colors.grey[400]
+                          : Colors.grey[700],
+                    ),
                   ),
                 ),
+              HighlightView(
+                code,
+                language: language.isNotEmpty ? language : 'plaintext',
+                theme: theme,
+                padding: const EdgeInsets.all(12),
+                textStyle: const TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 13,
+                  height: 1.5,
+                ),
               ),
-            // Highlighted code
-            HighlightView(
-              element.textContent.trimRight(),
-              language: language.isNotEmpty ? language : 'plaintext',
-              theme: theme,
-              padding: const EdgeInsets.all(12),
-              textStyle: const TextStyle(
+            ],
+          ),
+        ),
+      );
+    } catch (_) {
+      // HighlightView threw (unsupported language or other error) — show plain text
+      final bgColor = darkBackground
+          ? const Color(0xFF282C34)
+          : const Color(0xFFF6F8FA);
+      final textColor =
+          darkBackground ? Colors.white : Colors.black87;
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Container(
+          decoration: BoxDecoration(
+            color: bgColor,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          padding: const EdgeInsets.all(12),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Text(
+              code,
+              style: TextStyle(
                 fontFamily: 'monospace',
                 fontSize: 13,
                 height: 1.5,
+                color: textColor,
               ),
             ),
-          ],
+          ),
         ),
-      ),
-    );
+      );
+    }
   }
 
   static String _resolveLanguage(String lang) {
-    if (lang.isEmpty) return 'plaintext';
+    if (lang.isEmpty) return '';
     const aliases = <String, String>{
       'js': 'javascript',
       'ts': 'typescript',
@@ -279,6 +276,12 @@ class CodeHighlightBuilder extends MarkdownElementBuilder {
       'h': 'cpp',
       'hpp': 'cpp',
       'dart': 'dart',
+      // Common "non-language" labels — use plaintext fallback
+      'text': 'plaintext',
+      'output': 'plaintext',
+      'console': 'bash',
+      'shell': 'bash',
+      'terminal': 'bash',
     };
     return aliases[lang.toLowerCase()] ?? lang.toLowerCase();
   }

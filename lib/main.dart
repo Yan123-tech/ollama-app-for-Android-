@@ -929,8 +929,6 @@ class _MainAppState extends State<MainApp> {
                                 builders: {
                                   'code': CodeHighlightBuilder(
                                       darkBackground: darkCodeBg),
-                                  'inlinemath':
-                                      InlineMathBuilder(textColor),
                                   'blockmath':
                                       BlockMathBuilder(textColor),
                                 },
