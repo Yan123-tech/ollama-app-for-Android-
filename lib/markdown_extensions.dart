@@ -105,9 +105,41 @@ class BlockMathBuilder extends MarkdownElementBuilder {
     TextStyle? parentStyle,
   ) {
     final latex = element.textContent;
+    try {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: MathWebView(latex: latex, textColor: textColor),
+      );
+    } catch (_) {
+      return _monoFallback(latex);
+    }
+  }
+
+  Widget _monoFallback(String latex) {
+    final bg = textColor.withOpacity(0.07);
+    final border = textColor.withOpacity(0.22);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
-      child: MathWebView(latex: latex, textColor: textColor),
+      child: Container(
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: border),
+        ),
+        padding: const EdgeInsets.all(12),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Text(
+            latex,
+            style: TextStyle(
+              color: textColor,
+              fontFamily: 'monospace',
+              fontSize: 14,
+              height: 1.5,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -128,22 +160,20 @@ class MathWebView extends StatefulWidget {
   State<MathWebView> createState() => _MathWebViewState();
 }
 
-class _MathWebViewState extends State<MathWebView>
-    with AutomaticKeepAliveClientMixin {
-  late final WebViewController _controller;
+class _MathWebViewState extends State<MathWebView> {
+  WebViewController? _controller;
   double _height = 72.0;
-
-  @override
-  bool get wantKeepAlive => true;
+  bool _failed = false;
 
   @override
   void initState() {
     super.initState();
-    final isDark = widget.textColor.computeLuminance() > 0.5;
-    final fgColor = isDark ? '#e8e8e8' : '#212121';
-    final latexJson = jsonEncode(widget.latex);
+    try {
+      final isDark = widget.textColor.computeLuminance() > 0.5;
+      final fgColor = isDark ? '#e8e8e8' : '#212121';
+      final latexJson = jsonEncode(widget.latex);
 
-    final html = '''<!DOCTYPE html>
+      final html = '''<!DOCTYPE html>
 <html><head>
   <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
@@ -177,27 +207,58 @@ class _MathWebViewState extends State<MathWebView>
   </script>
 </body></html>''';
 
-    _controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(Colors.transparent)
-      ..addJavaScriptChannel(
-        'SizeReporter',
-        onMessageReceived: (msg) {
-          final h = double.tryParse(msg.message);
-          if (h != null && mounted) {
-            setState(() => _height = h.clamp(40.0, 500.0));
-          }
-        },
-      )
-      ..loadHtmlString(html);
+      _controller = WebViewController()
+        ..setJavaScriptMode(JavaScriptMode.unrestricted)
+        ..setBackgroundColor(Colors.transparent)
+        ..addJavaScriptChannel(
+          'SizeReporter',
+          onMessageReceived: (msg) {
+            final h = double.tryParse(msg.message);
+            if (h != null && mounted) {
+              setState(() => _height = h.clamp(40.0, 500.0));
+            }
+          },
+        )
+        ..loadHtmlString(html);
+    } catch (_) {
+      _failed = true;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    super.build(context);
+    if (_failed || _controller == null) {
+      return _monoFallback();
+    }
     return SizedBox(
+      width: double.infinity,
       height: _height,
-      child: WebViewWidget(controller: _controller),
+      child: WebViewWidget(controller: _controller!),
+    );
+  }
+
+  Widget _monoFallback() {
+    final bg = widget.textColor.withOpacity(0.07);
+    final border = widget.textColor.withOpacity(0.22);
+    return Container(
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: border),
+      ),
+      padding: const EdgeInsets.all(12),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Text(
+          widget.latex,
+          style: TextStyle(
+            color: widget.textColor,
+            fontFamily: 'monospace',
+            fontSize: 14,
+            height: 1.5,
+          ),
+        ),
+      ),
     );
   }
 }
