@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_highlight/flutter_highlight.dart';
 import 'package:flutter_highlight/themes/atom-one-dark.dart';
 import 'package:flutter_highlight/themes/github.dart';
-import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:markdown/markdown.dart' as md;
 
@@ -43,7 +42,7 @@ class BlockMathSyntax extends md.BlockSyntax {
     final firstLine = parser.current.content;
     final isDollar = firstLine.startsWith(r'$$');
 
-    // Single-line variants: $$...$$  or  \[...\]
+    // Single-line variants: $$...$$ or \[...\]
     final single = isDollar
         ? _dollarSingle.firstMatch(firstLine)
         : _bracketSingle.firstMatch(firstLine);
@@ -75,21 +74,87 @@ class BlockMathSyntax extends md.BlockSyntax {
   }
 }
 
-// ─── Math Widget ──────────────────────────────────────────────────
+// ─── Math Display Widget (no external package) ────────────────────
 
-Widget _buildMath(String tex, Color color, MathStyle style) {
-  return Math.tex(
-    tex,
-    textStyle: TextStyle(
-      color: color,
-      fontSize: style == MathStyle.display ? 18 : 16,
-    ),
-    mathStyle: style,
-    onErrorFallback: (_) => Text(
-      tex,
-      style: TextStyle(color: color, fontFamily: 'monospace', fontSize: 13),
-    ),
-  );
+/// Displays LaTeX source in a visually distinct styled block.
+/// Shows the raw LaTeX with monospace font and a "math" label.
+Widget buildMathWidget(String tex, Color textColor, bool isBlock) {
+  final bg = textColor.withOpacity(0.07);
+  final border = textColor.withOpacity(0.22);
+
+  if (isBlock) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Container(
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Label bar
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+              decoration: BoxDecoration(
+                color: border,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(7),
+                  topRight: Radius.circular(7),
+                ),
+              ),
+              child: Text(
+                'math',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontFamily: 'monospace',
+                  color: textColor.withOpacity(0.65),
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ),
+            // LaTeX source
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.all(12),
+              child: Text(
+                tex,
+                style: TextStyle(
+                  color: textColor,
+                  fontFamily: 'monospace',
+                  fontSize: 15,
+                  height: 1.6,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  } else {
+    // Inline math: small styled pill
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 2),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: border, width: 0.8),
+        ),
+        child: Text(
+          tex,
+          style: TextStyle(
+            color: textColor,
+            fontFamily: 'monospace',
+            fontSize: 14,
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 // ─── Inline Math Builder ──────────────────────────────────────────
@@ -105,10 +170,7 @@ class InlineMathBuilder extends MarkdownElementBuilder {
     TextStyle? preferredStyle,
     TextStyle? parentStyle,
   ) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 2),
-      child: _buildMath(element.textContent, textColor, MathStyle.text),
-    );
+    return buildMathWidget(element.textContent, textColor, false);
   }
 }
 
@@ -125,21 +187,15 @@ class BlockMathBuilder extends MarkdownElementBuilder {
     TextStyle? preferredStyle,
     TextStyle? parentStyle,
   ) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: _buildMath(element.textContent, textColor, MathStyle.display),
-      ),
-    );
+    return buildMathWidget(element.textContent, textColor, true);
   }
 }
 
 // ─── Syntax Highlighting Builder ──────────────────────────────────
 
 class CodeHighlightBuilder extends MarkdownElementBuilder {
-  /// true  → code blocks have a dark background (assistant in light theme)
-  /// false → code blocks have a light background (user msg or dark theme)
+  /// true  → dark code background (assistant messages in light theme)
+  /// false → light code background (user messages or dark theme)
   final bool darkBackground;
 
   CodeHighlightBuilder({required this.darkBackground});
